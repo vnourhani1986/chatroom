@@ -1,0 +1,5 @@
+//addSbtPlugin("io.github.davidgregory084" % "sbt-tpolecat" % "0.1.3")
+addSbtPlugin("io.spray" % "sbt-revolver" % "0.9.1")
+addSbtPlugin("ch.epfl.scala" % "sbt-scalafix" % "0.9.1")
+resolvers += Resolver.sonatypeRepo("snapshots")
+addSbtPlugin("ch.epfl.scala" % "sbt-bloop" % "1.4.5-8-6cc6911d")
