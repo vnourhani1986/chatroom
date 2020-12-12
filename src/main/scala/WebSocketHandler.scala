@@ -24,11 +24,11 @@ class StringTopicFactory[F[_]: Sync: Concurrent](
   def get(key: String): F[Topic[F, String]] =
     for {
       topicMap <- topics.get
-      topicOpt <- Sync[F].delay(topicMap.get(key))      
+      topicOpt <- Sync[F].delay(topicMap.get(key))
       topic <- topicOpt match {
         case None =>
           for {
-            t <- Topic[F, String](s"welcome to $key")            
+            t <- Topic[F, String](s"welcome to $key")
             _ <- topics.modify(ts => (ts.+(key -> t), ts))
           } yield t
         case Some(value) => Sync[F].delay(value)
@@ -44,12 +44,72 @@ object TopicFactory {
     } yield factory
 }
 
+trait BufferFactory[F[_], T] {
+  def get(key: String): F[Buffer[F, T]]
+}
+
+class StringBufferFactory[F[_]: Sync: Concurrent](
+    buffers: Ref[F, Map[String, Buffer[F, String]]],
+    size: Int
+) extends BufferFactory[F, String] {
+  def get(key: String): F[Buffer[F, String]] =
+    for {
+      bufferMap <- buffers.get
+      bufferOpt <- Sync[F].delay(bufferMap.get(key))
+      buffer <- bufferOpt match {
+        case None =>
+          for {
+            t <- Buffer[F](size)
+            _ <- buffers.modify(ts => (ts.+(key -> t), ts))
+          } yield t
+        case Some(value) => Sync[F].delay(value)
+      }
+    } yield buffer
+}
+
+object BufferFactory {
+  def apply[F[_]: Sync: Concurrent](size: Int): F[BufferFactory[F, String]] =
+    for {
+      buffers <- Ref.of[F, Map[String, Buffer[F, String]]](Map.empty)
+      factory <- Sync[F].delay(new StringBufferFactory[F](buffers, size))
+    } yield factory
+}
+
+trait Buffer[F[_], T] {
+  def get: F[List[T]]
+  def modify(value: T): F[List[T]]
+}
+
+final class StringBuffer[F[_]: Sync: Concurrent](
+    ref: Ref[F, List[String]],
+    size: Int
+) extends Buffer[F, String] {
+  def get: F[List[String]] = ref.get
+  def modify(value: String): F[List[String]] =
+    for {
+      list <- get
+      len <- Sync[F].delay(list.length)
+      res <-
+        if (len < size) ref.modify(l => (l ++ List(value), l ++ List(value)))
+        else
+          ref.modify(l => (l.drop(0) ++ List(value), l.drop(0) ++ List(value)))
+    } yield res
+}
+
+object Buffer {
+  def apply[F[_]: Sync: Concurrent](size: Int): F[Buffer[F, String]] =
+    for {
+      ref <- Ref.of[F, List[String]](List.empty)
+    } yield new StringBuffer[F](ref, size)
+}
+
 trait WebSocketHandler[F[_]] extends Http4sDsl[F] {
   def routes(maxQueued: Int): HttpRoutes[F]
   def server(port: Int): Stream[F, ExitCode]
 }
 class WebSocketHandlerImpl[F[_]: Sync: ConcurrentEffect: Timer](
-    topicFactory: TopicFactory[F, String]
+    topicFactory: TopicFactory[F, String],
+    bufferFactory: BufferFactory[F, String]
 )(implicit
     ec: ExecutionContext
 ) extends WebSocketHandler[F] {
@@ -60,14 +120,22 @@ class WebSocketHandlerImpl[F[_]: Sync: ConcurrentEffect: Timer](
         WebSocketBuilder[F].build(
           for {
             topic <- Stream.eval(topicFactory.get(room))
-            string <- topic.subscribe(maxQueued)
+            buffer <- Stream.eval(bufferFactory.get(room))
+            list <- Stream.eval(buffer.get)
+            string <- Stream.emits(list) ++ topic.subscribe(maxQueued)
             res <- Stream.eval(Sync[F].delay(Text(string)))
           } yield res,
           _.flatMap(webSocketFrame =>
             for {
               topic <- Stream.eval(topicFactory.get(room))
+              buffer <- Stream.eval(bufferFactory.get(room))
               publish <- Stream.eval(
                 topic.publish1(
+                  s"$user in $room: ${webSocketFrame.data.toArray.map(_.toChar).mkString}"
+                )
+              )
+              _ <- Stream.eval(
+                buffer.modify(
                   s"$user in $room: ${webSocketFrame.data.toArray.map(_.toChar).mkString}"
                 )
               )
@@ -90,8 +158,9 @@ object WebSocketHandler {
   ): F[WebSocketHandler[F]] =
     for {
       topicFactory <- TopicFactory[F]
+      bufferFactory <- BufferFactory[F](100)
       webSocketHandler <- Sync[F].delay(
-        new WebSocketHandlerImpl[F](topicFactory)
+        new WebSocketHandlerImpl[F](topicFactory, bufferFactory)
       )
     } yield webSocketHandler
 
