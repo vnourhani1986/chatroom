@@ -15,7 +15,7 @@ libraryDependencies += "io.chrisdavenport" %% "cats-effect-time" % "0.1.2"
 libraryDependencies += "com.codecommit" %% "cats-effect-testing-scalatest" % "0.4.2" % Test
 libraryDependencies ++= Seq(
   "io.circe" %% "circe-core",
-  // "io.circe" %% "circe-generic",
+  "io.circe" %% "circe-generic",
   "io.circe" %% "circe-parser"
 ).map(_ % CirceVersion)
 libraryDependencies ++= Seq(

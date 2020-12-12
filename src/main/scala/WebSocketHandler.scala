@@ -4,15 +4,21 @@ import org.http4s.dsl.io._
 import org.http4s.dsl.Http4sDsl
 import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame.Text
+import org.http4s.circe._
+
+import io.circe.syntax._
+import io.circe.generic.auto._
+import io.circe._, io.circe.parser._
 
 import cats.effect._
 import cats.syntax.all._
 import cats.effect.concurrent.Ref
 
-import fs2._
+import fs2.{Pipe, Stream}
 import fs2.concurrent.Topic
 import org.http4s.server.blaze.BlazeServerBuilder
 import scala.concurrent.ExecutionContext
+import io.circe.Json
 
 trait TopicFactory[F[_], T] {
   def get(key: String): F[Topic[F, T]]
@@ -92,7 +98,7 @@ final class StringBuffer[F[_]: Sync: Concurrent](
       res <-
         if (len < size) ref.modify(l => (l ++ List(value), l ++ List(value)))
         else
-          ref.modify(l => (l.drop(0) ++ List(value), l.drop(0) ++ List(value)))
+          ref.modify(l => (l.drop(1) ++ List(value), l.drop(1) ++ List(value)))
     } yield res
 }
 
@@ -102,6 +108,8 @@ object Buffer {
       ref <- Ref.of[F, List[String]](List.empty)
     } yield new StringBuffer[F](ref, size)
 }
+
+case class TopicDataModel(user: String, room: String, message: String)
 
 trait WebSocketHandler[F[_]] extends Http4sDsl[F] {
   def routes(maxQueued: Int): HttpRoutes[F]
@@ -114,6 +122,8 @@ class WebSocketHandlerImpl[F[_]: Sync: ConcurrentEffect: Timer](
     ec: ExecutionContext
 ) extends WebSocketHandler[F] {
 
+  implicit val topicDataModelDecoder = jsonOf[F, TopicDataModel]
+
   def routes(maxQueued: Int): HttpRoutes[F] =
     HttpRoutes
       .of[F] { case GET -> Root / "rooms" / room / user =>
@@ -122,8 +132,26 @@ class WebSocketHandlerImpl[F[_]: Sync: ConcurrentEffect: Timer](
             topic <- Stream.eval(topicFactory.get(room))
             buffer <- Stream.eval(bufferFactory.get(room))
             list <- Stream.eval(buffer.get)
-            string <- Stream.emits(list) ++ topic.subscribe(maxQueued)
-            res <- Stream.eval(Sync[F].delay(Text(string)))
+            subscriber <- Stream.emits(list.slice(0, list.length - 1)) ++ topic
+              .subscribe(maxQueued)
+            data <- Stream
+              .eval(
+                Sync[F].delay(
+                  parse(subscriber) match {
+                    case Right(json) =>
+                      json.as[TopicDataModel].toOption match {
+                        case Some(value) =>
+                          Stream(
+                            s"${value.user} in ${value.room}: ${value.message}"
+                          )
+                        case None => Stream.empty
+                      }
+                    case Left(error) => Stream.empty
+                  }
+                )
+              )
+              .flatten
+            res <- Stream.eval(Sync[F].delay(Text(data)))
           } yield res,
           _.flatMap(webSocketFrame =>
             for {
@@ -131,12 +159,20 @@ class WebSocketHandlerImpl[F[_]: Sync: ConcurrentEffect: Timer](
               buffer <- Stream.eval(bufferFactory.get(room))
               publish <- Stream.eval(
                 topic.publish1(
-                  s"$user in $room: ${webSocketFrame.data.toArray.map(_.toChar).mkString}"
+                  TopicDataModel(
+                    user,
+                    room,
+                    webSocketFrame.data.toArray.map(_.toChar).mkString
+                  ).asJson.show
                 )
               )
               _ <- Stream.eval(
                 buffer.modify(
-                  s"$user in $room: ${webSocketFrame.data.toArray.map(_.toChar).mkString}"
+                  TopicDataModel(
+                    user,
+                    room,
+                    webSocketFrame.data.toArray.map(_.toChar).mkString
+                  ).asJson.show
                 )
               )
             } yield publish
@@ -144,7 +180,11 @@ class WebSocketHandlerImpl[F[_]: Sync: ConcurrentEffect: Timer](
           onClose = for {
             topic <- topicFactory.get(room)
             publish <- topic.publish1(
-              s"$user left the room"
+              TopicDataModel(
+                user,
+                room,
+                s"left the room"
+              ).asJson.show
             )
           } yield publish
         )
