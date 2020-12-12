@@ -140,7 +140,13 @@ class WebSocketHandlerImpl[F[_]: Sync: ConcurrentEffect: Timer](
                 )
               )
             } yield publish
-          )
+          ),
+          onClose = for {
+            topic <- topicFactory.get(room)
+            publish <- topic.publish1(
+              s"$user left the room"
+            )
+          } yield publish
         )
       }
 
