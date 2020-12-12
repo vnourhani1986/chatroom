@@ -2,22 +2,25 @@ import org.http4s._
 import cats.implicits._
 import cats.syntax.all._
 import cats.effect._
-import cats.effect.concurrent.Ref
 
 import org.http4s.websocket.WebSocketFrame
 
 import fs2._
-import fs2.concurrent.Topic
+
+import scala.concurrent.ExecutionContext.Implicits.global
 
 object Chatroom extends IOApp {
   def run(args: List[String]): IO[ExitCode] = {
 
-    import scala.concurrent.ExecutionContext.Implicits.global
-  
-    (for {                  
+    (for {
+      port <- args.headOption match {
+        case None =>
+          Stream.raiseError[IO](new Exception("server port is not defiend"))
+        case Some(value) => Stream(value.toInt)
+      }
       webSocketHandler <- Stream.eval(WebSocketHandler[IO])
-      exitCode <- webSocketHandler.server(9002)
-    } yield exitCode).compile.last.map(_.get)
+      exitCode <- webSocketHandler.server(port)
+    } yield exitCode).compile.drain.as(ExitCode.Success)
 
   }
 
