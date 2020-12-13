@@ -6,18 +6,18 @@ trait BufferFactory[F[_], T] {
   def get(key: String): F[Buffer[F, T]]
 }
 
-class StringBufferFactory[F[_]: Concurrent](
-    buffers: Ref[F, Map[String, Buffer[F, String]]],
+class BufferFactoryImpl[F[_]: Concurrent, T](
+    buffers: Ref[F, Map[String, Buffer[F, T]]],
     size: Int
-) extends BufferFactory[F, String] {
-  def get(key: String): F[Buffer[F, String]] =
+) extends BufferFactory[F, T] {
+  def get(key: String): F[Buffer[F, T]] =
     for {
       bufferMap <- buffers.get
       bufferOpt <- Sync[F].delay(bufferMap.get(key))
       buffer <- bufferOpt match {
         case None =>
           for {
-            t <- Buffer[F](size)
+            t <- Buffer[F, T](size)
             _ <- buffers.modify(ts => (ts.+(key -> t), ts))
           } yield t
         case Some(value) => Sync[F].delay(value)
@@ -26,9 +26,9 @@ class StringBufferFactory[F[_]: Concurrent](
 }
 
 object BufferFactory {
-  def apply[F[_]: Concurrent](size: Int): F[BufferFactory[F, String]] =
+  def apply[F[_]: Concurrent, T](size: Int): F[BufferFactory[F, T]] =
     for {
-      buffers <- Ref.of[F, Map[String, Buffer[F, String]]](Map.empty)
-      factory <- Sync[F].delay(new StringBufferFactory[F](buffers, size))
+      buffers <- Ref.of[F, Map[String, Buffer[F, T]]](Map.empty)
+      factory <- Sync[F].delay(new BufferFactoryImpl[F, T](buffers, size))
     } yield factory
 }

@@ -5,20 +5,20 @@ import cats.effect.concurrent.Ref
 import fs2.concurrent.Topic
 
 trait TopicFactory[F[_], T] {
-  def get(key: String): F[Topic[F, T]]
+  def get(key: String, initial: T): F[Topic[F, T]]
 }
 
-class StringTopicFactory[F[_]: Concurrent](
-    topics: Ref[F, Map[String, Topic[F, String]]]
-) extends TopicFactory[F, String] {
-  def get(key: String): F[Topic[F, String]] =
+class TopicFactoryImpl[F[_]: Concurrent, T](
+    topics: Ref[F, Map[String, Topic[F, T]]]
+) extends TopicFactory[F, T] {
+  def get(key: String, initial: T): F[Topic[F, T]] =
     for {
       topicMap <- topics.get
       topicOpt <- Sync[F].delay(topicMap.get(key))
       topic <- topicOpt match {
         case None =>
           for {
-            t <- Topic[F, String](s"welcome to $key")
+            t <- Topic[F, T](initial)
             _ <- topics.modify(ts => (ts.+(key -> t), ts))
           } yield t
         case Some(value) => Sync[F].delay(value)
@@ -27,9 +27,9 @@ class StringTopicFactory[F[_]: Concurrent](
 }
 
 object TopicFactory {
-  def apply[F[_]: Concurrent]: F[TopicFactory[F, String]] =
+  def apply[F[_]: Concurrent, T]: F[TopicFactory[F, T]] =
     for {
-      topics <- Ref.of[F, Map[String, Topic[F, String]]](Map.empty)
-      factory <- Sync[F].delay(new StringTopicFactory[F](topics))
+      topics <- Ref.of[F, Map[String, Topic[F, T]]](Map.empty)
+      factory <- Sync[F].delay(new TopicFactoryImpl[F, T](topics))
     } yield factory
 }

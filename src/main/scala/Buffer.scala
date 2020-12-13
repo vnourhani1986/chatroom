@@ -7,12 +7,12 @@ trait Buffer[F[_], T] {
   def modify(value: T): F[List[T]]
 }
 
-final class StringBuffer[F[_]: Concurrent](
-    ref: Ref[F, List[String]],
+final class BufferImpl[F[_]: Concurrent, T](
+    ref: Ref[F, List[T]],
     size: Int
-) extends Buffer[F, String] {
-  def get: F[List[String]] = ref.get
-  def modify(value: String): F[List[String]] =
+) extends Buffer[F, T] {
+  def get: F[List[T]] = ref.get
+  def modify(value: T): F[List[T]] =
     for {
       list <- get
       len <- Sync[F].delay(list.length)
@@ -24,8 +24,8 @@ final class StringBuffer[F[_]: Concurrent](
 }
 
 object Buffer {
-  def apply[F[_]: Concurrent](size: Int): F[Buffer[F, String]] =
+  def apply[F[_]: Concurrent, T](size: Int): F[Buffer[F, T]] =
     for {
-      ref <- Ref.of[F, List[String]](List.empty)
-    } yield new StringBuffer[F](ref, size)
+      ref <- Ref.of[F, List[T]](List.empty)
+    } yield new BufferImpl[F, T](ref, size)
 }

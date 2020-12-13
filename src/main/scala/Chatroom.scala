@@ -19,7 +19,7 @@ object Chatroom extends IOApp {
           Stream(8080)
         case Some(value) => Stream(value.toInt)
       }
-      webSocketHandler <- Stream.eval(WebSocketHandler[IO])
+      webSocketHandler <- Stream.eval(WebSocketHandler[IO, String])
       exitCode <- webSocketHandler.server(port)
     } yield exitCode).compile.drain.as(ExitCode.Success)
 
