@@ -149,7 +149,7 @@ class WebSocketHandlerImpl[F[_]: Sync: ConcurrentEffect: Timer, T](
                 .through(
                   pubSub.publish[String]("system info")
                 )
-            )
+            ).map(_ => ())
           )
 
       }

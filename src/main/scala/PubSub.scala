@@ -7,7 +7,7 @@ import fs2.concurrent.Topic
 
 trait PubSub[F[_], T] {
   def subscribe[A](key: String)(implicit decoder: T => A): Stream[F, A]
-  def publish[A](key: String)(implicit encoder: A => T): Pipe[F, A, Unit]
+  def publish[A](key: String)(implicit encoder: A => T): Pipe[F, A, A]
 }
 
 final class PubSubImpl[F[_]: Sync, T](
@@ -27,14 +27,14 @@ final class PubSubImpl[F[_]: Sync, T](
         .subscribe(100)
     } yield subscriber
 
-  def publish[A](key: String)(implicit encoder: A => T): Pipe[F, A, Unit] =
+  def publish[A](key: String)(implicit encoder: A => T): Pipe[F, A, A] =
     _.flatMap { data =>
       for {
         topic <- Stream.eval(topicFactory.get(key, initial))
         buffer <- Stream.eval(bufferFactory.get(key))
         _ <- Stream.eval(topic.publish1(data))
         _ <- Stream.eval(buffer.modify(data))
-      } yield ()
+      } yield data
     }
 }
 
