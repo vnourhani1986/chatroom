@@ -15,7 +15,8 @@ object Chatroom extends IOApp {
     (for {
       port <- args.headOption match {
         case None =>
-          Stream.raiseError[IO](new Exception("server port is not defiend"))
+          // Stream.raiseError[IO](new Exception("server port is not defiend"))
+          Stream(8080)
         case Some(value) => Stream(value.toInt)
       }
       webSocketHandler <- Stream.eval(WebSocketHandler[IO])
