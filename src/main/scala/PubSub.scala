@@ -20,7 +20,7 @@ final class PubSubImpl[F[_]: Sync, T](
     for {
       topic <- Stream.eval(topicFactory.get(key, initial))
       buffer <- Stream.eval(bufferFactory.get(key))
-      list <- Stream.eval(buffer.get)      
+      list <- Stream.eval(buffer.get)
       subscriber <- Stream.emits(
         list.slice(0, list.length - 1)
       ) ++ topic
@@ -28,12 +28,12 @@ final class PubSubImpl[F[_]: Sync, T](
     } yield subscriber
 
   def publish[A](key: String)(implicit encoder: A => T): Pipe[F, A, A] =
-    _.flatMap { data =>
+    _.evalMap { data =>
       for {
-        topic <- Stream.eval(topicFactory.get(key, initial))
-        buffer <- Stream.eval(bufferFactory.get(key))
-        _ <- Stream.eval(topic.publish1(data))
-        _ <- Stream.eval(buffer.modify(data))
+        topic <- topicFactory.get(key, initial)
+        buffer <- bufferFactory.get(key)
+        _ <- topic.publish1(data)
+        _ <- buffer.modify(data)
       } yield data
     }
 }
