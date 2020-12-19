@@ -6,30 +6,30 @@ version in ThisBuild := "2.2.0"
 
 scalaVersion in ThisBuild := "2.12.8"
 
-lazy val core = (project in file("core"))
+lazy val core = (project in file("./modules/core"))
   .settings(
     libraryDependencies ++= fs2
   )
 
-lazy val `plugins` = (project in file("plugins"))
+lazy val `plugins` = (project in file("./modules/plugins"))
   .settings(
     libraryDependencies ++= fs2
   )
   .dependsOn(core)
 
-lazy val `websocket-sysinfo` = (project in file("websocket-sysinfo"))
+lazy val `websocket-sysinfo` = (project in file("./modules/websocket-sysinfo"))
   .settings(
     libraryDependencies ++= fs2 ++ `cats-effect` ++ http4s
   )
   .dependsOn(`plugins`, core)
 
-lazy val `rest-sysinfo` = (project in file("rest-sysinfo"))
+lazy val `rest-sysinfo` = (project in file("./modules/rest-sysinfo"))
   .settings(
     libraryDependencies ++= fs2 ++ `cats-effect` ++ http4s
   )
   .dependsOn(`plugins`, core)
 
-lazy val `cli-sysinfo` = (project in file("cli-sysinfo"))
+lazy val `cli-sysinfo` = (project in file("./modules/cli-sysinfo"))
   .settings(
     libraryDependencies ++= fs2 ++ `cats-effect`
   )
