@@ -21,15 +21,17 @@ object RestSysInfo {
   def apply[F[_]: Concurrent](
       plugin: Plugin[F],
       bufSize: Int
-  ): F[HttpRoutes[F]] = {
+  ): F[HttpRoutes[F]] =
     for {
       queue <- Queue.bounded[F, String](bufSize)
       routes <- Sync[F].delay(HttpRoutes.of[F] {
         case req @ POST -> Root =>
-          for {
-            body <- req.as[String]
-            _ <- queue.enqueue1(body)
-          } yield Response[F](Status.Ok)
+          req.as[String].map { body =>
+            Stream(body)
+              .through(plugin)
+              .through(queue.enqueue)
+            Response[F](Status.Ok)
+          }
 
         case GET -> Root =>
           queue.dequeue1
@@ -38,7 +40,5 @@ object RestSysInfo {
             )
       })
     } yield routes
-
-  }
 
 }

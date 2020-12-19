@@ -1,6 +1,6 @@
 import Dependencies._
 
-name := "chatroom"
+name := "chatroom-service"
 
 version in ThisBuild := "2.2.0"
 
@@ -35,10 +35,10 @@ lazy val `cli-sysinfo` = (project in file("cli-sysinfo"))
   )
   .dependsOn(`plugins`, core)
 
-lazy val `chatroom` = (project in file("chatroom"))
+lazy val chatroom = (project in file("chatroom"))
   .settings(
-    libraryDependencies ++= fs2 ++ `cats-effect` ++ http4s ++ circe ++ pureconfig
-  ).dependsOn(core, plugins, `websocket-sysinfo`)
+    libraryDependencies ++= fs2 ++ `cats-effect` ++ http4s ++ circe
+  ).dependsOn(core, plugins, `websocket-sysinfo`, `rest-sysinfo`)
 
 scalacOptions in ThisBuild ++= Seq(
   "-feature",

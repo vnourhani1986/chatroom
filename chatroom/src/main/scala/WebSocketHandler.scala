@@ -27,7 +27,7 @@ case class TopicDataModel(user: String, room: String, message: String)
 trait WebSocketHandler[F[_], T] extends Http4sDsl[F] {
   def routes(
       maxQueued: Int
-  )(implicit decoder: T => String, encoder: String => T): HttpRoutes[F]
+  )(implicit decoder: T => String, encoder: String => T): F[HttpRoutes[F]]
   def server(port: Int)(implicit
       ex: ExecutionContext,
       decoder: T => String,
@@ -42,15 +42,18 @@ class WebSocketHandlerImpl[F[_]: Sync: ConcurrentEffect: Timer, T](
 
   implicit val topicDataModelDecoder = jsonOf[F, TopicDataModel]
 
+  // implicit val tToString: T => String = ???
+  // implicit val stringToT: String => T = ???
+
   def routes(
       maxQueued: Int
-  )(implicit decoder: T => String, encoder: String => T): HttpRoutes[F] =
+  )(implicit decoder: T => String, encoder: String => T): F[HttpRoutes[F]] =
     HttpRoutes
       .of[F] {
         case GET -> Root / "rooms" / room / user =>
           WebSocketBuilder[F].build(
             for {
-              topic <- Stream.eval(topicFactory.get(room, s"welcome to $room"))
+              topic <- Stream.eval(topicFactory.get(room, encoder(s"welcome to $room")))
               buffer <- Stream.eval(bufferFactory.get(room))
               list <- Stream.eval(buffer.get)
               _ <- Stream.eval(
@@ -71,7 +74,7 @@ class WebSocketHandlerImpl[F[_]: Sync: ConcurrentEffect: Timer, T](
               data <- Stream
                 .eval(
                   Sync[F].delay(
-                    parse(subscriber) match {
+                    parse(decoder(subscriber)) match {
                       case Right(json) =>
                         json.as[TopicDataModel].toOption match {
                           case Some(value) =>
@@ -90,46 +93,46 @@ class WebSocketHandlerImpl[F[_]: Sync: ConcurrentEffect: Timer, T](
             _.flatMap(webSocketFrame =>
               for {
                 topic <- Stream.eval(
-                  topicFactory.get(room, s"welcome to $room")
+                  topicFactory.get(room, encoder(s"welcome to $room"))
                 )
                 buffer <- Stream.eval(bufferFactory.get(room))
                 publish <- Stream.eval(
                   topic.publish1(
-                    TopicDataModel(
+                    encoder(TopicDataModel(
                       user,
                       room,
                       webSocketFrame.data.toArray.map(_.toChar).mkString
-                    ).asJson.show
+                    ).asJson.show)
                   )
                 )
                 _ <- Stream.eval(
                   buffer.modify(
-                    TopicDataModel(
+                    encoder(TopicDataModel(
                       user,
                       room,
                       webSocketFrame.data.toArray.map(_.toChar).mkString
-                    ).asJson.show
+                    ).asJson.show)
                   )
                 )
               } yield publish
             ),
             onClose = for {
-              topic <- topicFactory.get(room, s"welcome to $room")
+              topic <- topicFactory.get(room, encoder(s"welcome to $room"))
               buffer <- bufferFactory.get(room)
               publish <- topic.publish1(
-                TopicDataModel(
+                encoder(TopicDataModel(
                   user,
                   room,
                   s"left the room"
-                ).asJson.show
+                ).asJson.show)
               )
               _ <-
                 buffer.modify(
-                  TopicDataModel(
+                  encoder(TopicDataModel(
                     user,
                     room,
                     s"left the room"
-                  ).asJson.show
+                  ).asJson.show)
                 )
             } yield publish
           )
@@ -152,7 +155,10 @@ class WebSocketHandlerImpl[F[_]: Sync: ConcurrentEffect: Timer, T](
             ).map(_ => ())
           )
 
-      } <+> WebSocketSysInfo[F](EchoPlugin[IO], 100)
+      }
+      .pure
+
+  import Plugins._
 
   def server(
       port: Int
@@ -161,10 +167,19 @@ class WebSocketHandlerImpl[F[_]: Sync: ConcurrentEffect: Timer, T](
       decoder: T => String,
       encoder: String => T
   ): Stream[F, ExitCode] =
-    BlazeServerBuilder[F](ec)
-      .bindHttp(port)
-      .withHttpApp(routes(100).orNotFound)
-      .serve
+    for {
+      baseRoute <- Stream.eval(routes(100)(decoder, encoder))
+      webSocketSysInfoRoute <- Stream.eval(
+        WebSocketSysInfo[F](EchoPlugin[F], 100)
+      )
+      restSysInfoRoute <- Stream.eval(RestSysInfo[F](EchoPlugin[F], 100))
+      server <- BlazeServerBuilder[F](ec)
+        .bindHttp(port)
+        .withHttpApp(
+          (baseRoute <+> webSocketSysInfoRoute <+> restSysInfoRoute).orNotFound
+        )
+        .serve
+    } yield server
 
 }
 

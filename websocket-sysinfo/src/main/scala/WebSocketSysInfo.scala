@@ -28,11 +28,11 @@ object WebSocketSysInfo {
           queue <- Queue.bounded[F, String](bufSize)
           response <- WebSocketBuilder[F].build(
             queue.dequeue
-              .through(plugin)
               .map(Text(_)),
             _.map { webSocketFrame =>
               Stream
                 .eval(Sync[F].delay(webSocketFrame.data.toArray.mkString))
+                .through(plugin)
                 .through {
                   _.map(queue.enqueue1)
                 }
