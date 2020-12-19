@@ -8,33 +8,38 @@ import org.http4s.server.websocket.WebSocketBuilder
 import org.http4s.websocket.WebSocketFrame.Text
 import org.http4s.websocket.WebSocketFrame
 import org.http4s.circe._
+import org.http4s.server.blaze.BlazeServerBuilder
+import org.http4s.server.Router
+import cats.syntax.all._
 
-object SysInfoImpl {
-  def apply[F[_]: Concurrent]: SysInfo[F, Response[F]] =
-    new SysInfo[F, Response[F]] {
-      def build[A](stream: Stream[F, A])(implicit
-          aToString: A => String,
-          stringToA: String => A
-      ): F[Response[F]] =
-        WebSocketBuilder[F].build(
-          streamEncoder(stream),
-          in => streamDecoder[A](in).map(_ => Unit)
-        )
+import fs2.concurrent.Queue
 
-      def streamEncoder[A](stream: Stream[F, A])(implicit
-          f: A => String
-      ): Stream[F, WebSocketFrame] =
-        stream.evalMap(s => Sync[F].delay(encoder[A](s)))
+import Plugins._
 
-      def streamDecoder[A](stream: Stream[F, WebSocketFrame])(implicit
-          f: String => A
-      ): Stream[F, A] =
-        stream.evalMap(s => Sync[F].delay(decoder[A](s)))
+object WebSocketSysInfo {
 
-      def encoder[A](a: A)(implicit f: A => String): WebSocketFrame =
-        Text(a)
+  def apply[F[_]: Concurrent](
+      plugin: Plugin[F],
+      bufSize: Int
+  ): F[HttpRoutes[F]] =
+    HttpRoutes
+      .of[F] { case GET -> Root =>
+        for {
+          queue <- Queue.bounded[F, String](bufSize)
+          response <- WebSocketBuilder[F].build(
+            queue.dequeue
+              .through(plugin)
+              .map(Text(_)),
+            _.map { webSocketFrame =>
+              Stream
+                .eval(Sync[F].delay(webSocketFrame.data.toArray.mkString))
+                .through {
+                  _.map(queue.enqueue1)
+                }
+            }
+          )
+        } yield response
+      }
+      .pure
 
-      def decoder[A](frame: WebSocketFrame)(implicit f: String => A): A =
-        frame.data.toArray.map(_.toChar).mkString
-    }
 }

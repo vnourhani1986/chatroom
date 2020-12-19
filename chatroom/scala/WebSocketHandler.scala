@@ -152,7 +152,7 @@ class WebSocketHandlerImpl[F[_]: Sync: ConcurrentEffect: Timer, T](
             ).map(_ => ())
           )
 
-      }
+      } <+> WebSocketSysInfo[F](EchoPlugin[IO], 100)
 
   def server(
       port: Int

@@ -1,23 +1,31 @@
-import cats.implicits._
-import cats.syntax.all._
-import cats.effect._
-
-import scala.concurrent.duration._
-
 import fs2._
+import cats.effect._
+import cats.syntax.all._
 
-object CliSysInfo extends IOApp {
-  def run(args: List[String]): IO[ExitCode] =
-    Stream
-      .eval(
-        SysInfoImpl[IO].build(
-          Stream
-            .repeatEval(IO.delay("hello"))
-            .delayBy(1.second)
-            .metered(1.second)
-        )
-      )
-      .compile
-      .drain      
-      .as(ExitCode.Success)
+import fs2.concurrent.Queue
+
+import Plugins._
+
+object CliSysInfo {
+  def apply[F[_]: Concurrent: ContextShift](
+      plugin: Plugin[F],
+      bufSize: Int
+  ): Stream[F, Unit] = {
+
+    def stringToByte: Pipe[F, String, Byte] =
+      _.flatMap(string => Stream.emits(string.getBytes))
+
+    for {
+      blocker <- Stream.resource(Blocker[F])
+      queue <- Stream.eval(Queue.bounded[F, String](bufSize))
+      in <- fs2.io
+        .stdinUtf8(bufSize, blocker)
+        .through(plugin)
+        .through(queue.enqueue)
+      out <- queue.dequeue
+        .through(stringToByte)
+        .through(fs2.io.stdout(blocker))
+    } yield out
+  }
 }
+
